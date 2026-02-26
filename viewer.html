@@ -129,6 +129,10 @@
     <div class="card"><div class="row" id="kpis"></div></div>
     <div class="card"><div class="sectionTitle">身長（cm）</div><div id="chart_h" class="chart"></div></div>
     <div class="card"><div class="sectionTitle">体重（kg）</div><div id="chart_w" class="chart"></div></div>
+    <div class="card" id="growthCurveNote" style="display:none">
+      <div class="sectionTitle">身体発育曲線について</div>
+      <p style="font-size:13px; color:#555; line-height:1.7; margin:0;">グラフ背景のグレーの帯は、厚生労働省の令和5年度調査に基づいた乳幼児の標準的な発育範囲（3〜97パーセンタイル）を示しています。<br>お子さんの成長ラインがこの帯に沿って推移していれば、順調な発育の目安となります。</p>
+    </div>
     <div class="card"><div class="sectionTitle">履歴</div><div id="table"></div></div>
   </div>
 
@@ -195,7 +199,10 @@
     `;
     
     renderTable(data.series || []);
-    
+
+    const noteEl = document.getElementById('growthCurveNote');
+    if (noteEl) noteEl.style.display = data.gender ? 'block' : 'none';
+
     drawChart('chart_h', '身長', 'h', '#4285f4', data.series || []);
     drawChart('chart_w', '体重', 'w', '#db4437', data.series || []);
   }
@@ -261,10 +268,10 @@
 
       new google.visualization.LineChart(el).draw(data, {
         series: {
-          0: { color: '#bdbdbd', lineWidth: 1, lineDashStyle: [4, 4], pointSize: 0 },
+          0: { color: '#aaaaaa', lineWidth: 1, lineDashStyle: [4, 4], pointSize: 0 },
           1: { color: color, lineWidth: 3, pointSize: 4 }
         },
-        intervals: { style: 'area', color: '#f0f0f0' },
+        intervals: { style: 'area', color: '#e2e2e2' },
         legend: { position: 'top', alignment: 'end', textStyle: { fontSize: 11, color: '#888' } },
         chartArea: { left: 45, right: 10, top: 35, bottom: 40 },
         vAxis: {
