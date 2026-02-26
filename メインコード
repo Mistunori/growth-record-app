@@ -1,0 +1,282 @@
+/************ 設定 ************/
+const SHEET_MASTER = '園児マスター';
+const SHEET_BELONGS = '所属_年度';
+const SHEET_INPUT_PREFIX = '入力_月次';
+const SHEET_LOG = 'ログ_縦持ち';
+
+const WEBAPP_URL_PROP = 'WEBAPP_URL';
+const LOG_UPDATED_AT_PROP = 'LOG_UPDATED_AT';
+
+// 同一実行内キャッシュ用の変数
+let _belongsCache = null;
+
+/************ Webアプリ（初期表示） ************/
+function doGet(e) {
+  const t = e?.parameter?.t;
+  if (!t) return htmlMessage_('URLが正しくありません');
+
+  const data = getChildData_(t, null);
+  if (!data) return htmlMessage_('データが見つかりません');
+
+  const tpl = HtmlService.createTemplateFromFile('viewer');
+  tpl.token = t;
+  tpl.initialDataJson = JSON.stringify(data);
+
+  return tpl.evaluate()
+    .setTitle('成長記録')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/************ データ切り替え・更新用関数 ************/
+function getDataForFy(token, fy) {
+  return getChildData_(token, fy ? Number(fy) : null);
+}
+
+/************ ① トークン発行＆URL作成 ************/
+function ensureTokensAndUrls() {
+  const ss = getSS_();
+  const sh = ss.getSheetByName(SHEET_MASTER);
+  if (!sh) throw new Error('園児マスターが見つかりません');
+
+  let webappUrl = PropertiesService.getScriptProperties().getProperty(WEBAPP_URL_PROP);
+  if (!webappUrl) {
+    const u = ScriptApp.getService().getUrl();
+    if (u) {
+      webappUrl = u;
+      PropertiesService.getScriptProperties().setProperty(WEBAPP_URL_PROP, webappUrl);
+    }
+  }
+
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2) return;
+
+  const data = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  const header = data[0];
+  const idxChild = mustIndex_(header, 'child_id');
+  const idxToken = mustIndex_(header, 'token');
+  const idxUrl   = mustIndex_(header, 'parent_url');
+  const idxQr    = header.indexOf('QRコードURL');
+  const idxStatus = header.indexOf('在園・卒園');
+
+  let successCount = 0;
+  for (let r = 1; r < data.length; r++) {
+    const rowNum = r + 1;
+    const cid = String(data[r][idxChild] || '').trim();
+    if (!cid || (idxStatus !== -1 && data[r][idxStatus] === '卒園')) continue;
+
+    const hasToken = !!String(data[r][idxToken] || '').trim();
+    const hasUrl   = !!String(data[r][idxUrl] || '').trim();
+    const hasQr    = (idxQr === -1) || !!String(data[r][idxQr] || '').trim();
+
+    if (hasToken && hasUrl && hasQr) continue;
+
+    let rowToken = data[r][idxToken] || generateToken(40);
+    let rowUrl = `${webappUrl}?t=${encodeURIComponent(rowToken)}`;
+    let rowQr = (idxQr !== -1) ? `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(rowUrl)}` : null;
+
+    try {
+      if (!hasToken) sh.getRange(rowNum, idxToken + 1).setValue(rowToken);
+      sh.getRange(rowNum, idxUrl + 1).setValue(rowUrl);
+      if (idxQr !== -1 && !hasQr) sh.getRange(rowNum, idxQr + 1).setValue(rowQr);
+      successCount++;
+    } catch(e) { console.log(e); }
+  }
+  SpreadsheetApp.getUi().alert(successCount === 0 ? '更新不要でした。' : successCount + ' 名更新しました。');
+}
+
+/************ ② 入力 → 縦持ちログ更新 ************/
+function rebuildLogFromInput() {
+  const ss = getSS_();
+  const inputSheets = ss.getSheets().filter(s => s.getName().startsWith(SHEET_INPUT_PREFIX));
+  const activeMasterIds = readActiveMasterIdSet_(); 
+  const out = [];
+
+  inputSheets.forEach(sh => {
+    const values = sh.getDataRange().getValues();
+    if (values.length < 2) return;
+    const headerRowIndex = findHeaderRowIndex_(values);
+    if (headerRowIndex < 0) return;
+    const header = values[headerRowIndex];
+    const idxChild = header.indexOf('child_id');
+    const months = parseMonthColumns_(header);
+
+    for (let r = headerRowIndex + 1; r < values.length; r++) {
+      const cid = normalizeId_(values[r][idxChild]);
+      if (!cid || !activeMasterIds.has(cid)) continue;
+      months.forEach(m => {
+        const h = toNumberOrBlank_(values[r][m.hCol]);
+        const w = toNumberOrBlank_(values[r][m.wCol]);
+        if ((h !== '' || w !== '') && !(h === 0 && w === 0)) {
+          out.push([cid, String(m.ym), h, w]);
+        }
+      });
+    }
+  });
+
+  out.sort((a, b) => {
+    if (a[0] !== b[0]) return a[0].localeCompare(b[0], undefined, {numeric: true});
+    return a[1].localeCompare(b[1]);
+  });
+
+  let logSh = ss.getSheetByName(SHEET_LOG);
+  if (!logSh) logSh = ss.insertSheet(SHEET_LOG);
+  logSh.clearContents();
+  const finalOut = [['child_id','ym','height','weight'], ...out];
+  logSh.getRange(1, 1, finalOut.length, finalOut[0].length).setValues(finalOut);
+  if (finalOut.length > 1) logSh.getRange(2, 2, finalOut.length - 1, 1).setNumberFormat('@');
+
+  PropertiesService.getScriptProperties().setProperty(LOG_UPDATED_AT_PROP, new Date().toISOString());
+  SpreadsheetApp.getUi().alert('縦持ちログを更新しました。');
+}
+
+/************ 高速データ取得ロジック（ChatGPT改善反映版） ************/
+function getChildData_(token, targetFy) {
+  const ss = getSS_();
+  const masterSh = ss.getSheetByName(SHEET_MASTER);
+  const logSh = ss.getSheetByName(SHEET_LOG);
+  const belongsSh = ss.getSheetByName(SHEET_BELONGS);
+  if (!masterSh || !logSh) return null;
+
+  const masterValues = masterSh.getDataRange().getValues();
+  const m = masterFindByToken_(masterValues, token);
+  if (!m) return null;
+
+  const targetCid = normalizeId_(m.child_id);
+  const seriesAll = [];
+
+  const lastRowLog = logSh.getLastRow();
+  let firstMatch = null;
+  if (lastRowLog > 1) {
+    firstMatch = logSh.getRange(2, 1, lastRowLog - 1, 1)
+      .createTextFinder(targetCid)
+      .matchEntireCell(true)
+      .findNext();
+  }
+
+  if (firstMatch) {
+    const startRow = firstMatch.getRow();
+    const MAX_ROWS_PER_CHILD = 120;
+    const rowsToRead = Math.min(MAX_ROWS_PER_CHILD, (lastRowLog - startRow + 1));
+    const numCols = 4;
+
+    const data = logSh.getRange(startRow, 1, rowsToRead, numCols).getValues();
+    
+    for (let row of data) {
+      if (normalizeId_(row[0]) !== targetCid) break;
+      const ym = ymToYYYYMM_(row[1]);
+      if (/^\d{4}-\d{2}$/.test(ym)) {
+        seriesAll.push({ ym, h: toNumberOrNull_(row[2]), w: toNumberOrNull_(row[3]) });
+      }
+    }
+  }
+  seriesAll.sort((a,b) => a.ym.localeCompare(b.ym));
+
+  const fyOfYm = (ymStr) => {
+    const [y,m] = String(ymStr).split('-').map(Number);
+    return (m >= 4) ? y : (y - 1);
+  };
+
+  const fySet = new Set(seriesAll.map(r => fyOfYm(r.ym)));
+  const fyList = Array.from(fySet).sort((a,b)=>a-b);
+  const selectedFy = (targetFy && fySet.has(targetFy)) ? targetFy : (fyList.length ? fyList[fyList.length - 1] : null);
+
+  let displayClass = "クラス不明";
+  if (belongsSh && selectedFy) {
+    // ★改善：同一実行内キャッシュを利用して読み込みを効率化
+    const bVals = getBelongsValues_(belongsSh);
+    const head = bVals[0];
+    const ci = head.indexOf('child_id'), fi = head.indexOf('fy'), ni = head.indexOf('class');
+    const match = bVals.find(r => normalizeId_(r[ci]) === targetCid && Number(r[fi]) === selectedFy);
+    if (match) displayClass = match[ni];
+  }
+
+  const series = (selectedFy == null) ? [] : seriesAll.filter(r => fyOfYm(r.ym) === selectedFy);
+  const latest = series.length ? series[series.length - 1] : null;
+  const prev = series.length > 1 ? series[series.length - 2] : null;
+
+  // ★改善：!= null 判定により、値が 0 の場合でも正しく計算されるように修正
+  const diff = {
+    dh: (latest?.h != null && prev?.h != null) ? +(latest.h - prev.h).toFixed(1) : null,
+    dw: (latest?.w != null && prev?.w != null) ? +(latest.w - prev.w).toFixed(1) : null
+  };
+
+  const iso = PropertiesService.getScriptProperties().getProperty(LOG_UPDATED_AT_PROP);
+  const updatedAt = iso ? Utilities.formatDate(new Date(iso), 'JST', 'yyyy/MM/dd HH:mm') : '—';
+
+  return {
+    childName: m.name,
+    childClass: displayClass,
+    series: series,
+    latest: latest,
+    diff: diff,
+    updatedAt: updatedAt,
+    fyList: fyList,
+    selectedFy: selectedFy,
+    siblings: m.siblings,
+    appUrl: ScriptApp.getService().getUrl()
+  };
+}
+
+/** 所属シートの読み込みをキャッシュ化するヘルパー */
+function getBelongsValues_(belongsSh) {
+  if (_belongsCache) return _belongsCache;
+  _belongsCache = belongsSh.getDataRange().getValues();
+  return _belongsCache;
+}
+
+/************ 共通ヘルパー ************/
+function masterFindByToken_(values, token) {
+  const head = values[0];
+  const ci = head.indexOf('child_id'), ni = head.indexOf('name'), ti = head.indexOf('token');
+  for (let i=1; i<values.length; i++) {
+    if (values[i][ti] === token) {
+      const sibs = [];
+      if (values[i][7]) sibs.push({ name: String(values[i][6] || '兄弟1'), token: String(values[i][7]) });
+      if (values[i][9]) sibs.push({ name: String(values[i][8] || '兄弟2'), token: String(values[i][9]) });
+      return { child_id: normalizeId_(values[i][ci]), name: String(values[i][ni] || '').replace(/[\s\u200B-\u200D\uFEFF]+/g,''), siblings: sibs };
+    }
+  }
+  return null;
+}
+
+function getSS_() { return SpreadsheetApp.getActiveSpreadsheet(); }
+function normalizeId_(v) { return String(v || '').trim().replace(/^0+/, '') || '0'; }
+function ymToYYYYMM_(v) {
+  if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}`;
+  const s = String(v).trim();
+  const m = s.match(/^(\d{4})-(\d{1,2})$/);
+  return m ? `${m[1]}-${m[2].padStart(2,'0')}` : s;
+}
+function mustIndex_(h, n){ const i = h.indexOf(n); if (i < 0) throw new Error(`「${n}」列なし`); return i; }
+function generateToken(l){ const c='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; return [...Array(l)].map(()=>c[Math.floor(Math.random()*c.length)]).join(''); }
+function toNumberOrNull_(v){ const n = Number(v); return Number.isFinite(n) ? n : null; }
+function toNumberOrBlank_(v){ const n = Number(v); return Number.isFinite(n) ? n : ''; }
+function htmlMessage_(m){ return HtmlService.createHtmlOutput(`<meta name="viewport" content="width=device-width, initial-scale=1"><div style="padding:16px">${m}</div>`); }
+function findHeaderRowIndex_(v) {
+  for (let i = 0; i < Math.min(v.length, 20); i++) if (v[i].includes('child_id')) return i;
+  return -1;
+}
+function parseMonthColumns_(h) {
+  const map = new Map();
+  h.forEach((c,i)=>{
+    const m = String(c).match(/^(\d{4}-\d{2})_(h|w)$/);
+    if (!m) return;
+    if (!map.has(m[1])) map.set(m[1], {ym:m[1],hCol:-1,wCol:-1});
+    map.get(m[1])[m[2]==='h' ? 'hCol' : 'wCol'] = i;
+  });
+  return [...map.values()].filter(x=>x.hCol>=0 && x.wCol>=0);
+}
+function readActiveMasterIdSet_() {
+  const sh = getSS_().getSheetByName(SHEET_MASTER);
+  if(!sh) return new Set();
+  const v = sh.getDataRange().getValues();
+  const ci = v[0].indexOf('child_id'), si = v[0].indexOf('在園・卒園');
+  const set = new Set();
+  for (let i=1; i<v.length; i++) {
+    const cid = normalizeId_(v[i][ci]);
+    if (cid !== '0' && (si === -1 || v[i][si] !== '卒園')) set.add(cid);
+  }
+  return set;
+}
