@@ -1,0 +1,289 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+  <style>
+    :root{
+      --pad: 14px;
+      --radius: 16px;
+      --border: #e7e7e7;
+      --muted: #666;
+      --primary: #4285f4;
+    }
+    /* OS標準のバウンスを止めるための設定 */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      position: fixed;
+      width: 100%;
+    }
+    #appContainer {
+      height: 100%;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: var(--pad);
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 18px;
+      line-height: 1.65;
+      background: #fff;
+      color: #111;
+    }
+    
+    #siblingTabs {
+      display: flex; gap: 8px; overflow-x: auto; padding-bottom: 12px; margin-bottom: 12px;
+      border-bottom: 2px solid #f0f0f0;
+      min-height: 40px;
+    }
+    #siblingTabs::-webkit-scrollbar { display: none; }
+
+    .tab-btn {
+      white-space: nowrap; 
+      padding: 6px 16px; 
+      border-radius: 20px;
+      border: 1px solid var(--border); 
+      background: #f8f8f8; 
+      font-size: 14px; 
+      font-weight: bold; 
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .tab-btn.active {
+      background: var(--primary); color: white; border-color: var(--primary);
+    }
+    .tab-btn.sibling {
+      background: #fff; border: 1px solid var(--primary); color: var(--primary);
+    }
+    
+    .title{ font-size: 24px; font-weight: 900; margin-bottom: 4px; }
+    .sub{ color:#444; margin-bottom: 6px; font-size: 16px; font-weight: 700; }
+    .metaRow{
+      display:flex; gap: 8px; align-items:center; flex-wrap: wrap; margin: 6px 0 12px 0;
+    }
+    .meta{ color: var(--muted); font-size: 14px; font-weight: 700; }
+    .spacer{ flex: 1 1 auto; }
+    select{
+      font-size: 16px; padding: 8px 12px;
+      border: 1px solid var(--border); border-radius: 12px; background: #fff;
+    }
+    .card{
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 12px; margin: 10px 0; background: #fff;
+    }
+    .row{ display:flex; gap: 10px; flex-wrap: wrap; }
+    .kpi{ flex: 1 1 160px; }
+    .kpi .label{ color:#666; font-size: 14px; font-weight: 800; }
+    .kpi .val{ font-size: 34px; font-weight: 900; margin-top: 4px; }
+    .diff{ color:#666; font-size: 14px; margin-top: 4px; font-weight: 900; }
+    .sectionTitle{ font-weight: 900; margin-bottom: 10px; font-size: 17px; }
+    .chart{ width: 100%; height: 300px; }
+    table{ width: 100%; border-collapse: collapse; font-size: 16px; }
+    th, td{ padding: 10px 2px; border-bottom: 1px solid #efefef; text-align: center; }
+    th{ color:#444; font-weight: 900; }
+
+    /* --- くるくる（スピナー）の設定 --- */
+    #loadingOverlay {
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      background: rgba(255,255,255,0.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9999;
+      visibility: hidden; opacity: 0; transition: opacity 0.2s;
+    }
+    #loadingOverlay.active { visibility: visible; opacity: 1; }
+    
+    .spinner {
+      width: 40px; height: 40px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="loadingOverlay"><div class="spinner"></div></div>
+  
+  <div id="appContainer">
+    <div id="siblingTabs"></div>
+    
+    <div class="title"><span id="titleName"></span></div>
+    <div class="sub" id="fyLine"></div>
+    <div class="sub" id="className" style="color:#666;"></div>
+    
+    <div class="metaRow">
+      <div class="meta">更新：<span id="updatedAt"></span></div>
+      <div class="spacer"></div>
+      <select id="fySelect" disabled></select>
+    </div>
+    
+    <div class="card"><div class="row" id="kpis"></div></div>
+    <div class="card"><div class="sectionTitle">身長（cm）</div><div id="chart_h" class="chart"></div></div>
+    <div class="card"><div class="sectionTitle">体重（kg）</div><div id="chart_w" class="chart"></div></div>
+    <div class="card"><div class="sectionTitle">履歴</div><div id="table"></div></div>
+  </div>
+
+<script>
+  let currentData = <?!= initialDataJson ?>;
+  let currentToken = "<?= token ?>";
+
+  // ★修正1：画面表示を最優先
+  updateView(currentData);
+
+  // その後、グラフライブラリを読み込み
+  google.charts.load('current', {'packages':['corechart']});
+  google.charts.setOnLoadCallback(() => {
+    updateView(currentData);
+  });
+
+  function updateView(data) {
+    if(!data) return;
+    document.getElementById('titleName').textContent = data.childName;
+    document.getElementById('className').textContent = data.childClass;
+    document.getElementById('updatedAt').textContent = data.updatedAt;
+    document.getElementById('fyLine').textContent = data.selectedFy ? (data.selectedFy + '年度の成長記録') : 'データなし';
+    
+    const tabArea = document.getElementById('siblingTabs');
+    tabArea.innerHTML = '';
+    
+    const myBtn = document.createElement('div');
+    myBtn.className = 'tab-btn active';
+    myBtn.textContent = data.childName;
+    tabArea.appendChild(myBtn);
+    
+    if (data.siblings && data.siblings.length > 0) {
+      data.siblings.forEach(sib => {
+        const sibBtn = document.createElement('div');
+        sibBtn.className = 'tab-btn sibling';
+        sibBtn.textContent = sib.name;
+        sibBtn.onclick = () => {
+          showLoading(true);
+          const targetUrl = data.appUrl ? data.appUrl : window.location.href.split('?')[0];
+          window.top.location.href = targetUrl + '?t=' + sib.token;
+        };
+        tabArea.appendChild(sibBtn);
+      });
+      tabArea.style.display = 'flex';
+    } else {
+      tabArea.style.display = 'none';
+    }
+    
+    const sel = document.getElementById('fySelect');
+    sel.innerHTML = '';
+    (data.fyList || []).sort((a,b)=>b-a).forEach(fy => {
+      const opt = document.createElement('option');
+      opt.value = fy; opt.textContent = fy + '年度';
+      if(fy == data.selectedFy) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.disabled = false;
+    
+    const latest = data.latest || {};
+    const diff = data.diff || {};
+    document.getElementById('kpis').innerHTML = `
+      <div class="kpi"><div class="label">最新 身長</div><div class="val">${fmt(latest.h)} cm</div><div class="diff">${diff.dh != null ? sign(diff.dh)+' cm' : '前月差 —'}</div></div>
+      <div class="kpi"><div class="label">最新 体重</div><div class="val">${fmt(latest.w)} kg</div><div class="diff">${diff.dw != null ? sign(diff.dw)+' kg' : '前月差 —'}</div></div>
+    `;
+    
+    renderTable(data.series || []);
+    
+    drawChart('chart_h', '身長', 'h', '#4285f4', data.series || []);
+    drawChart('chart_w', '体重', 'w', '#db4437', data.series || []);
+  }
+
+  document.getElementById('fySelect').addEventListener('change', function(){
+    showLoading(true);
+    google.script.run.withSuccessHandler(newData => { 
+      updateView(newData); 
+      showLoading(false); 
+    }).getDataForFy(currentToken, this.value);
+  });
+
+  function fmt(n, d=1){ return (n == null) ? '—' : Number(n).toFixed(d); }
+  function sign(n){ return (n > 0 ? '+' : '') + Number(n).toFixed(1); }
+  function monthLabel(ym){ return Number(ym.split('-')[1]) + '月'; }
+  function showLoading(bool){
+    const el = document.getElementById('loadingOverlay');
+    if(bool) el.classList.add('active'); else el.classList.remove('active');
+  }
+
+  function renderTable(series){
+    const tableEl = document.getElementById('table');
+    if (!series.length) { tableEl.innerHTML="<div style='text-align:center;padding:10px;color:#666'>データなし</div>"; return; }
+    let html = `<table><thead><tr><th>月</th><th>身長</th><th>差</th><th>体重</th><th>差</th></tr></thead><tbody>`;
+    series.forEach((cur, i) => {
+      const prev = i > 0 ? series[i-1] : null;
+      const dh = (prev && cur.h != null && prev.h != null) ? cur.h - prev.h : null;
+      const dw = (prev && cur.w != null && prev.w != null) ? cur.w - prev.w : null;
+      html += `<tr><td>${monthLabel(cur.ym)}</td><td>${fmt(cur.h)}</td><td>${sign(dh)}</td><td>${fmt(cur.w)}</td><td>${sign(dw)}</td></tr>`;
+    });
+    tableEl.innerHTML = html + `</tbody></table>`;
+  }
+
+  function drawChart(id, label, key, color, series){
+    if (typeof google === 'undefined' || !google.visualization || !google.visualization.DataTable) {
+      return;
+    }
+    const el = document.getElementById(id);
+    if(!series.length) { el.innerHTML = ""; return; }
+    const data = new google.visualization.DataTable();
+    data.addColumn('string', '月'); data.addColumn('number', label);
+    series.forEach(r => data.addRow([monthLabel(r.ym), r[key]]));
+
+    const formatter = new google.visualization.NumberFormat({pattern: '#.0'});
+    formatter.format(data, 1);
+
+    new google.visualization.LineChart(el).draw(data, {
+      colors: [color], 
+      legend: 'none', 
+      chartArea: {left: 45, right: 10, top: 20, bottom: 40},
+      vAxis: { 
+        gridlines: {color: '#f3f3f3'},
+        format: '#.0',
+        viewWindowMode: 'pretty'
+      }
+    });
+  }
+
+  // --- 強制リロード検知 ---
+  const container = document.getElementById('appContainer');
+  let startY = 0;
+  let refreshing = false;
+
+  container.addEventListener('touchstart', (e) => {
+    startY = e.touches[0].pageY;
+  }, {passive: true});
+
+  container.addEventListener('touchmove', (e) => {
+    const y = e.touches[0].pageY;
+    const dist = y - startY;
+
+    if (container.scrollTop <= 0 && dist > 120 && !refreshing) {
+      refreshing = true;
+      showLoading(true);
+      const sel = document.getElementById('fySelect');
+      google.script.run
+        .withSuccessHandler(newData => {
+          updateView(newData);
+          showLoading(false);
+          refreshing = false;
+        })
+        .withFailureHandler(() => {
+          showLoading(false);
+          refreshing = false;
+        })
+        .getDataForFy(currentToken, sel.value);
+    }
+  }, {passive: true});
+</script>
+</body>
+</html>
