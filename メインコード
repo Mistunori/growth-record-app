@@ -40,6 +40,12 @@ const GROWTH_REF = {
   }
 };
 
+// [月齢, 配列インデックス] のノード点（線形補間用）
+const AGE_NODES = [
+  [0,0],[1,1],[2,2],[3,3],[4,4],[5,5],[6,6],[7,7],[8,8],[9,9],[10,10],[11,11],[12,12],
+  [15,13],[21,18],[27,24],[33,30],[39,36],[45,42],[51,48],[57,54],[63,60],[69,66],[72,72]
+];
+
 /************ Webアプリ（初期表示） ************/
 function doGet(e) {
   const t = e?.parameter?.t;
@@ -336,12 +342,24 @@ function calcMonthAge_(birthdayStr, ym) {
   return (y - by) * 12 + (m - bm);
 }
 
-/** パーセンタイル値検索: 性別・指標・月齢から {p3, p50, p97} を返す（範囲外はnull） */
+/** パーセンタイル値検索: 性別・指標・月齢から {p3, p50, p97} を返す（範囲外はnull）。ノード点間は線形補間 */
 function lookupPercentile_(gender, metric, monthAge) {
   if (monthAge < 0 || monthAge > 72) return null;
   const ref = GROWTH_REF[gender]?.[metric];
-  if (!ref || monthAge >= ref.p50.length) return null;
-  return { p3: ref.p3[monthAge], p50: ref.p50[monthAge], p97: ref.p97[monthAge] };
+  if (!ref) return null;
+  for (let i = 0; i < AGE_NODES.length - 1; i++) {
+    const [age0, idx0] = AGE_NODES[i];
+    const [age1, idx1] = AGE_NODES[i + 1];
+    if (monthAge >= age0 && monthAge <= age1) {
+      const t = (age1 === age0) ? 0 : (monthAge - age0) / (age1 - age0);
+      return {
+        p3:  Math.round((ref.p3[idx0]  + t * (ref.p3[idx1]  - ref.p3[idx0]))  * 100) / 100,
+        p50: Math.round((ref.p50[idx0] + t * (ref.p50[idx1] - ref.p50[idx0])) * 100) / 100,
+        p97: Math.round((ref.p97[idx0] + t * (ref.p97[idx1] - ref.p97[idx0])) * 100) / 100
+      };
+    }
+  }
+  return null;
 }
 
 function getSS_() { return SpreadsheetApp.getActiveSpreadsheet(); }
