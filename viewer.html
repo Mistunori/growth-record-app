@@ -235,23 +235,63 @@
     }
     const el = document.getElementById(id);
     if(!series.length) { el.innerHTML = ""; return; }
+
+    const hasRef = series[0]['p3_' + key] != null;
     const data = new google.visualization.DataTable();
-    data.addColumn('string', '月'); data.addColumn('number', label);
-    series.forEach(r => data.addRow([monthLabel(r.ym), r[key]]));
-
     const formatter = new google.visualization.NumberFormat({pattern: '#.0'});
-    formatter.format(data, 1);
 
-    new google.visualization.LineChart(el).draw(data, {
-      colors: [color], 
-      legend: 'none', 
-      chartArea: {left: 45, right: 10, top: 20, bottom: 40},
-      vAxis: { 
-        gridlines: {color: '#f3f3f3'},
-        format: '#.0',
-        viewWindowMode: 'pretty'
-      }
-    });
+    if (hasRef) {
+      // 基準帯付きモード: 50%線 + interval(3%-97%帯) + 実測値
+      data.addColumn('string', '月');
+      data.addColumn('number', '50%');
+      data.addColumn({type:'number', role:'interval', label:'3%'});
+      data.addColumn({type:'number', role:'interval', label:'97%'});
+      data.addColumn('number', label);
+      series.forEach(r => {
+        data.addRow([
+          monthLabel(r.ym),
+          r['p50_' + key],
+          r['p3_' + key],
+          r['p97_' + key],
+          r[key]
+        ]);
+      });
+      formatter.format(data, 1);
+      formatter.format(data, 4);
+
+      new google.visualization.LineChart(el).draw(data, {
+        series: {
+          0: { color: '#bdbdbd', lineWidth: 1, lineDashStyle: [4, 4], pointSize: 0 },
+          1: { color: color, lineWidth: 3, pointSize: 4 }
+        },
+        intervals: { style: 'area', color: '#f0f0f0' },
+        legend: { position: 'top', alignment: 'end', textStyle: { fontSize: 11, color: '#888' } },
+        chartArea: { left: 45, right: 10, top: 35, bottom: 40 },
+        vAxis: {
+          gridlines: { color: '#f3f3f3' },
+          format: '#.0',
+          viewWindowMode: 'pretty'
+        },
+        focusTarget: 'category'
+      });
+    } else {
+      // 従来モード: 実測値のみ
+      data.addColumn('string', '月');
+      data.addColumn('number', label);
+      series.forEach(r => data.addRow([monthLabel(r.ym), r[key]]));
+      formatter.format(data, 1);
+
+      new google.visualization.LineChart(el).draw(data, {
+        colors: [color],
+        legend: 'none',
+        chartArea: { left: 45, right: 10, top: 20, bottom: 40 },
+        vAxis: {
+          gridlines: { color: '#f3f3f3' },
+          format: '#.0',
+          viewWindowMode: 'pretty'
+        }
+      });
+    }
   }
 
   // --- 強制リロード検知 ---
