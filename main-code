@@ -43,7 +43,7 @@ const GROWTH_REF = {
 // [月齢, 配列インデックス] のノード点（線形補間用）
 const AGE_NODES = [
   [0,0],[1,1],[2,2],[3,3],[4,4],[5,5],[6,6],[7,7],[8,8],[9,9],[10,10],[11,11],[12,12],
-  [15,13],[21,18],[27,24],[33,30],[39,36],[45,42],[51,48],[57,54],[63,60],[69,66],[72,72]
+  [15,13],[21,18],[27,24],[33,30],[39,36],[45,42],[51,48],[57,54],[63,60],[69,66],[75,72],[78,72]
 ];
 
 /************ Webアプリ（初期表示） ************/
@@ -344,7 +344,7 @@ function calcMonthAge_(birthdayStr, ym) {
 
 /** パーセンタイル値検索: 性別・指標・月齢から {p3, p50, p97} を返す（範囲外はnull）。ノード点間は線形補間 */
 function lookupPercentile_(gender, metric, monthAge) {
-  if (monthAge < 0 || monthAge > 72) return null;
+  if (monthAge < 0 || monthAge > 78) return null;
   const ref = GROWTH_REF[gender]?.[metric];
   if (!ref) return null;
   for (let i = 0; i < AGE_NODES.length - 1; i++) {
