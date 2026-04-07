@@ -402,21 +402,6 @@ function readActiveMasterIdSet_() {
   return set;
 }
 
-/************ onOpen: カスタムメニュー ************/
-function onOpen() {
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('★整列')
-    .addItem('クラス順に並べ替え', 'sortInputSheets')
-    .addItem('B・C列をARRAYFORMULA→個別数式に変換', 'replaceArrayFormulasWithIndividual')
-    .addItem('B・C列の数式を補完（行追加後）', 'fillFormulas')
-    .addToUi();
-  ui.createMenu('📋 管理')
-    .addItem('トークン・URL発行', 'ensureTokensAndUrls')
-    .addItem('縦持ちログ更新', 'rebuildLogFromInput')
-    .addItem('園児マスターを保護', 'protectMasterSheet')
-    .addToUi();
-}
-
 /************ 入力シートの個別数式設定（内部共通処理） ************/
 function setIndividualFormulas_(sh, firstDataSheetRow, lastRow) {
   const numDataRows = lastRow - firstDataSheetRow + 1;
