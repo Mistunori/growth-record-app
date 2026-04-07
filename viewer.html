@@ -81,6 +81,10 @@
     .kpi .label{ color:#666; font-size: 14px; font-weight: 800; }
     .kpi .val{ font-size: 34px; font-weight: 900; margin-top: 4px; }
     .diff{ color:#666; font-size: 14px; margin-top: 4px; font-weight: 900; }
+    .diff-badge{display:inline-block;font-size:13px;margin-top:6px;font-weight:900;padding:2px 10px;border-radius:20px;}
+    .diff-up{background:#e8f0fe;color:#1a56db;}
+    .diff-down{background:#fce8e6;color:#c0392b;}
+    .diff-zero{background:#f1f1f1;color:#888;}
     .sectionTitle{ font-weight: 900; margin-bottom: 10px; font-size: 17px; }
     .chart{ width: 100%; height: 300px; }
     table{ width: 100%; border-collapse: collapse; font-size: 16px; }
@@ -116,9 +120,11 @@
   <div id="appContainer">
     <div id="siblingTabs"></div>
     
-    <div class="title"><span id="titleName"></span></div>
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px;">
+      <div class="title"><span id="titleName"></span></div>
+      <div class="sub" id="className" style="color:#666;margin-bottom:0;"></div>
+    </div>
     <div class="sub" id="fyLine"></div>
-    <div class="sub" id="className" style="color:#666;"></div>
     
     <div class="metaRow">
       <div class="meta">更新：<span id="updatedAt"></span></div>
@@ -193,9 +199,16 @@
     
     const latest = data.latest || {};
     const diff = data.diff || {};
+    const fmtDiff = (val, unit) => {
+      if (val == null) return '<span class="diff-badge diff-zero">前月差 —</span>';
+      const n = Number(val);
+      if (Math.abs(n) < 0.05) return '<span class="diff-badge diff-zero">—</span>';
+      const cls = n > 0 ? 'diff-up' : 'diff-down';
+      return `<span class="diff-badge ${cls}">${n > 0 ? '+' : ''}${n.toFixed(1)} ${unit}</span>`;
+    };
     document.getElementById('kpis').innerHTML = `
-      <div class="kpi"><div class="label">最新 身長</div><div class="val">${fmt(latest.h)} cm</div><div class="diff">${diff.dh != null ? sign(diff.dh)+' cm' : '前月差 —'}</div></div>
-      <div class="kpi"><div class="label">最新 体重</div><div class="val">${fmt(latest.w)} kg</div><div class="diff">${diff.dw != null ? sign(diff.dw)+' kg' : '前月差 —'}</div></div>
+      <div class="kpi"><div class="label">最新 身長</div><div class="val">${fmt(latest.h)} cm</div><div>${fmtDiff(diff.dh, 'cm')}</div></div>
+      <div class="kpi"><div class="label">最新 体重</div><div class="val">${fmt(latest.w)} kg</div><div>${fmtDiff(diff.dw, 'kg')}</div></div>
     `;
     
     renderTable(data.series || [], data.prev || null);
@@ -232,7 +245,14 @@
       const prev = i > 0 ? series[i-1] : prevEntry;
       const dh = (prev && cur.h != null && prev.h != null) ? cur.h - prev.h : null;
       const dw = (prev && cur.w != null && prev.w != null) ? cur.w - prev.w : null;
-      html += `<tr><td>${monthLabel(cur.ym)}</td><td>${fmt(cur.h)}</td><td>${sign(dh)}</td><td>${fmt(cur.w)}</td><td>${sign(dw)}</td></tr>`;
+      const fmtD = n => {
+        if (n == null) return '<td style="color:#aaa">—</td>';
+        if (Math.abs(n) < 0.05) return '<td style="color:#aaa">—</td>';
+        const s = (n > 0 ? '+' : '') + Number(n).toFixed(1);
+        const c = n > 0 ? '#1a56db' : '#c0392b';
+        return `<td style="color:${c};font-weight:700">${s}</td>`;
+      };
+      html += `<tr><td>${monthLabel(cur.ym)}</td><td>${fmt(cur.h)}</td>${fmtD(dh)}<td>${fmt(cur.w)}</td>${fmtD(dw)}</tr>`;
     });
     tableEl.innerHTML = html + `</tbody></table>`;
   }
