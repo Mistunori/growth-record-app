@@ -257,9 +257,17 @@ function getChildData_(token, targetFy) {
   }
 
   // latest/prev は実測データがあるエントリのみから取得
+  // latestは年度内の実測データから取得
   const measured = series.filter(r => r.h != null || r.w != null);
   const latest = measured.length ? measured[measured.length - 1] : null;
-  const prev = measured.length > 1 ? measured[measured.length - 2] : null;
+
+  // prevはseriesAllから取得（年度をまたいで直前の実測データを探す）
+  let prev = null;
+  if (latest) {
+    const allMeasured = seriesAll.filter(r => r.h != null || r.w != null);
+    const latestIdx = allMeasured.findIndex(r => r.ym === latest.ym);
+    if (latestIdx > 0) prev = allMeasured[latestIdx - 1];
+  }
 
   // ★改善：!= null 判定により、値が 0 の場合でも正しく計算されるように修正
   const diff = {
