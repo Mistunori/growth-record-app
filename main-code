@@ -441,36 +441,7 @@ function getActualLastRow_(sh, firstDataSheetRow) {
   return last;
 }
 
-/************ ③ ARRAYFORMULA → 値に変換 ************/
-/**
- * 「入力_月次_」で始まる全シートの B・C列の ARRAYFORMULA／数式を削除し、
- * マスターを参照した氏名・クラスの値を直接書き込む。
- * これによりフィルター・ソート時の行番号ズレ問題を根本的に解消する。
- */
-function replaceArrayFormulasWithIndividual() {
-  const ss = getSS_();
-  const sheets = ss.getSheets().filter(s => s.getName().startsWith(SHEET_INPUT_PREFIX));
-  if (sheets.length === 0) {
-    SpreadsheetApp.getUi().alert('対象シートが見つかりません。');
-    return;
-  }
-  let count = 0;
-  sheets.forEach(sh => {
-    const values = sh.getDataRange().getValues();
-    const headerRowIndex = findHeaderRowIndex_(values);
-    if (headerRowIndex < 0) return;
-
-    const firstDataSheetRow = headerRowIndex + 2; // シート上の1始まり行番号
-    const lastRow = sh.getLastRow();
-    if (firstDataSheetRow > lastRow) return;
-
-    fillNameAndClass_(sh, firstDataSheetRow, lastRow);
-    count++;
-  });
-  SpreadsheetApp.getUi().alert(count + ' シートのB・C列を値に変換しました。');
-}
-
-/************ ④ 行追加後のB・C列補完 ************/
+/************ ③ 名前・クラスを最新に更新 ************/
 /**
  * 「入力_月次_」で始まる全シートのデータ行に対し、
  * マスターを参照した氏名・クラスの値を B・C列に再書き込みする。
