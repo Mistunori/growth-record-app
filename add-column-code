@@ -1,0 +1,84 @@
+/**
+ * __add_column__.gs
+ * 年度更新管理 + メニュー一本化
+ */
+
+/************ onOpen: カスタムメニュー（全メニューをここで一元管理） ************/
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('成長記録')
+    .addItem('① トークン発行＆URL作成', 'ensureTokensAndUrls')
+    .addItem('② 入力→縦持ちログ更新', 'rebuildLogFromInput')
+    .addToUi();
+
+  ui.createMenu('★年度更新管理')
+    .addItem('各クラスに翌年度の列を追加', 'addNewFiscalYearColumns')
+    .addToUi();
+
+  ui.createMenu('★整列')
+    .addItem('クラス順に並べ替え', 'sortInputSheets')
+    .addItem('B・C列をARRAYFORMULA→個別数式に変換', 'replaceArrayFormulasWithIndividual')
+    .addItem('B・C列の数式を補完（行追加後）', 'fillFormulas')
+    .addToUi();
+
+  ui.createMenu('📋 管理')
+    .addItem('トークン・URL発行', 'ensureTokensAndUrls')
+    .addItem('縦持ちログ更新', 'rebuildLogFromInput')
+    .addItem('園児マスターを保護', 'protectMasterSheet')
+    .addToUi();
+}
+
+/************ 年度更新管理 ************/
+function addNewFiscalYearColumns() {
+  const ss = getSS_();
+  const sheets = ss.getSheets().filter(s => s.getName().startsWith(SHEET_INPUT_PREFIX));
+  if (sheets.length === 0) {
+    SpreadsheetApp.getUi().alert('対象シートが見つかりません。');
+    return;
+  }
+
+  // 翌年度を計算（現在の年度 = 4月以降なら当年、1〜3月なら前年）
+  const now = new Date();
+  const currentFy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const nextFy = currentFy + 1;
+
+  // 追加する月リスト（翌年度 4月〜翌々年 3月）
+  const months = [];
+  for (let m = 4; m <= 12; m++) months.push(`${nextFy}-${String(m).padStart(2, '0')}`);
+  for (let m = 1; m <= 3; m++) months.push(`${nextFy + 1}-${String(m).padStart(2, '0')}`);
+
+  let updatedSheets = 0;
+  sheets.forEach(sh => {
+    const values = sh.getDataRange().getValues();
+    const headerRowIndex = findHeaderRowIndex_(values);
+    if (headerRowIndex < 0) return;
+
+    const header = values[headerRowIndex];
+    const existingYms = new Set();
+    header.forEach(c => {
+      const match = String(c).match(/^(\d{4}-\d{2})_(h|w)$/);
+      if (match) existingYms.add(match[1]);
+    });
+
+    // 既存列と重複しない月のみ追加
+    const toAdd = months.filter(ym => !existingYms.has(ym));
+    if (toAdd.length === 0) return;
+
+    const headerSheetRow = headerRowIndex + 1; // 1始まり
+    let insertCol = sh.getLastColumn() + 1;
+
+    toAdd.forEach(ym => {
+      sh.getRange(headerSheetRow, insertCol).setValue(`${ym}_h`);
+      sh.getRange(headerSheetRow, insertCol + 1).setValue(`${ym}_w`);
+      insertCol += 2;
+    });
+    updatedSheets++;
+  });
+
+  SpreadsheetApp.getUi().alert(
+    updatedSheets === 0
+      ? `${nextFy}年度の列はすでに存在します。`
+      : `${updatedSheets} シートに ${nextFy}年度（${months.length}ヶ月分）の列を追加しました。`
+  );
+}
