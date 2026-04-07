@@ -403,17 +403,36 @@ function readActiveMasterIdSet_() {
 }
 
 /************ 入力シートの個別数式設定（内部共通処理） ************/
+/** A列に値がある行にだけ数式を設定し、空行には空文字を書き込む */
 function setIndividualFormulas_(sh, firstDataSheetRow, lastRow) {
-  const numDataRows = lastRow - firstDataSheetRow + 1;
-  if (numDataRows < 1) return;
-  const formulas = [];
-  for (let r = firstDataSheetRow; r <= lastRow; r++) {
-    formulas.push([
-      `=IF(A${r}="","",VLOOKUP(A${r},'園児マスター'!A:B,2,FALSE))`,
-      `=IF(A${r}="","",VLOOKUP(A${r},'園児マスター'!A:E,5,FALSE))`
-    ]);
+  const aVals = sh.getRange(firstDataSheetRow, 1, lastRow - firstDataSheetRow + 1, 1).getValues();
+  const bFormulas = [];
+  const cFormulas = [];
+
+  for (let i = 0; i < aVals.length; i++) {
+    const r = firstDataSheetRow + i;
+    if (String(aVals[i][0]).trim() !== '') {
+      bFormulas.push([`=IF(A${r}="","",VLOOKUP(A${r},'園児マスター'!A:B,2,FALSE))`]);
+      cFormulas.push([`=IF(A${r}="","",VLOOKUP(A${r},'園児マスター'!A:E,5,FALSE))`]);
+    } else {
+      bFormulas.push(['']);
+      cFormulas.push(['']);
+    }
   }
-  sh.getRange(firstDataSheetRow, 2, numDataRows, 2).setFormulas(formulas);
+
+  const numRows = lastRow - firstDataSheetRow + 1;
+  sh.getRange(firstDataSheetRow, 2, numRows, 1).setValues(bFormulas);
+  sh.getRange(firstDataSheetRow, 3, numRows, 1).setValues(cFormulas);
+}
+
+/** A列に値がある実データの最終行番号を返す */
+function getActualLastRow_(sh, firstDataSheetRow) {
+  const aVals = sh.getRange(firstDataSheetRow, 1, sh.getLastRow() - firstDataSheetRow + 1, 1).getValues();
+  let last = firstDataSheetRow - 1;
+  for (let i = 0; i < aVals.length; i++) {
+    if (String(aVals[i][0]).trim() !== '') last = firstDataSheetRow + i;
+  }
+  return last;
 }
 
 /************ ③ ARRAYFORMULA → 個別数式に変換 ************/
@@ -481,11 +500,68 @@ function fillFormulas() {
 }
 
 /************ ⑤ 入力シートのソート ************/
+
+/** ソート用文字列正規化: 全角数字→半角、全角スペース→半角 */
+function normalizeForSort_(str) {
+  return String(str)
+    .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+    .replace(/　/g, ' ')
+    .trim();
+}
+
 /**
- * 「入力_月次_」で始まる全シートを GAS 経由で安全にソートする。
- * ソートキー1: C列（class）昇順
- * ソートキー2: A列（child_id）昇順
- * B・C列は個別数式のため、ソート後も各行と正しく対応する。
+ * 1シートのデータ行を JS で手動ソートして書き戻す共通処理。
+ * - A列が空の行は末尾にまとめる
+ * - C列（class）を正規化して ja ロケールで昇順
+ * - 同クラスなら A列（child_id）を数値として昇順
+ * - 数式セルはソート後に行番号を更新して書き戻す
+ */
+function sortSheetData_(sh, firstDataSheetRow) {
+  const actualLastRow = getActualLastRow_(sh, firstDataSheetRow);
+  if (actualLastRow < firstDataSheetRow) return;
+
+  const lastCol = sh.getLastColumn();
+  const numRows = actualLastRow - firstDataSheetRow + 1;
+  const range = sh.getRange(firstDataSheetRow, 1, numRows, lastCol);
+  const values = range.getValues();
+  const formulas = range.getFormulas();
+
+  // 空行と非空行を分離
+  const dataRows = [], emptyRows = [];
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][0]).trim() !== '') {
+      dataRows.push({ v: values[i], f: formulas[i] });
+    } else {
+      emptyRows.push({ v: values[i], f: formulas[i] });
+    }
+  }
+
+  // ソート: C列(class)正規化→昇順、A列(child_id)数値→昇順
+  dataRows.sort((a, b) => {
+    const ca = normalizeForSort_(a.v[2]);
+    const cb = normalizeForSort_(b.v[2]);
+    if (ca !== cb) return ca.localeCompare(cb, 'ja');
+    return Number(a.v[0]) - Number(b.v[0]);
+  });
+
+  const sorted = [...dataRows, ...emptyRows];
+  const sortedValues = sorted.map(r => r.v);
+  const sortedFormulas = sorted.map(r => r.f);
+
+  // 値を一括書き戻し、数式セルは行番号を更新して上書き
+  range.setValues(sortedValues);
+  for (let i = 0; i < sortedFormulas.length; i++) {
+    for (let j = 0; j < sortedFormulas[i].length; j++) {
+      if (sortedFormulas[i][j] !== '') {
+        sh.getRange(firstDataSheetRow + i, j + 1).setFormula(sortedFormulas[i][j]);
+      }
+    }
+  }
+}
+
+/**
+ * 「入力_月次_」で始まる全シートを JS ソートで安全に並べ替える。
+ * Range.sort() では全角・半角混在のクラス名を正しく扱えないため手動ソートを採用。
  */
 function sortInputSheets() {
   const ss = getSS_();
@@ -499,21 +575,34 @@ function sortInputSheets() {
     const values = sh.getDataRange().getValues();
     const headerRowIndex = findHeaderRowIndex_(values);
     if (headerRowIndex < 0) return;
-
     const firstDataSheetRow = headerRowIndex + 2;
-    const lastRow = sh.getLastRow();
-    const lastCol = sh.getLastColumn();
-    if (firstDataSheetRow > lastRow) return;
-
-    const numDataRows = lastRow - firstDataSheetRow + 1;
-    const dataRange = sh.getRange(firstDataSheetRow, 1, numDataRows, lastCol);
-    dataRange.sort([
-      { column: 3, ascending: true }, // C列: class
-      { column: 1, ascending: true }  // A列: child_id
-    ]);
+    if (firstDataSheetRow > sh.getLastRow()) return;
+    sortSheetData_(sh, firstDataSheetRow);
     count++;
   });
   SpreadsheetApp.getUi().alert(count + ' シートをクラス順にソートしました。');
+}
+
+/** アクティブシート1枚だけをクラス順にソートする */
+function sortActiveSheet() {
+  const sh = getSS_().getActiveSheet();
+  if (!sh.getName().startsWith(SHEET_INPUT_PREFIX)) {
+    SpreadsheetApp.getUi().alert('入力_月次_ で始まるシートを選択してください。');
+    return;
+  }
+  const values = sh.getDataRange().getValues();
+  const headerRowIndex = findHeaderRowIndex_(values);
+  if (headerRowIndex < 0) {
+    SpreadsheetApp.getUi().alert('ヘッダー行（child_id列）が見つかりません。');
+    return;
+  }
+  const firstDataSheetRow = headerRowIndex + 2;
+  if (firstDataSheetRow > sh.getLastRow()) {
+    SpreadsheetApp.getUi().alert('データ行がありません。');
+    return;
+  }
+  sortSheetData_(sh, firstDataSheetRow);
+  SpreadsheetApp.getUi().alert('「' + sh.getName() + '」をクラス順にソートしました。');
 }
 
 /************ ⑥ 園児マスターシートの保護（任意） ************/
