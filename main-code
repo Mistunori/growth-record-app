@@ -401,3 +401,157 @@ function readActiveMasterIdSet_() {
   }
   return set;
 }
+
+/************ onOpen: カスタムメニュー ************/
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('★整列')
+    .addItem('クラス順に並べ替え', 'sortInputSheets')
+    .addItem('B・C列をARRAYFORMULA→個別数式に変換', 'replaceArrayFormulasWithIndividual')
+    .addItem('B・C列の数式を補完（行追加後）', 'fillFormulas')
+    .addToUi();
+  ui.createMenu('📋 管理')
+    .addItem('トークン・URL発行', 'ensureTokensAndUrls')
+    .addItem('縦持ちログ更新', 'rebuildLogFromInput')
+    .addItem('園児マスターを保護', 'protectMasterSheet')
+    .addToUi();
+}
+
+/************ 入力シートの個別数式設定（内部共通処理） ************/
+function setIndividualFormulas_(sh, firstDataSheetRow, lastRow) {
+  const numDataRows = lastRow - firstDataSheetRow + 1;
+  if (numDataRows < 1) return;
+  const formulas = [];
+  for (let r = firstDataSheetRow; r <= lastRow; r++) {
+    formulas.push([
+      `=IF(A${r}="","",VLOOKUP(A${r},'園児マスター'!A:B,2,FALSE))`,
+      `=IF(A${r}="","",VLOOKUP(A${r},'園児マスター'!A:E,5,FALSE))`
+    ]);
+  }
+  sh.getRange(firstDataSheetRow, 2, numDataRows, 2).setFormulas(formulas);
+}
+
+/************ ③ ARRAYFORMULA → 個別数式に変換 ************/
+/**
+ * 「入力_月次_」で始まる全シートの B2・C2 の ARRAYFORMULA を削除し、
+ * データ行それぞれに個別の VLOOKUP 数式を設定する。
+ * これによりフィルター・ソート時に child_id と身長・体重がズレるバグを解消する。
+ */
+function replaceArrayFormulasWithIndividual() {
+  const ss = getSS_();
+  const sheets = ss.getSheets().filter(s => s.getName().startsWith(SHEET_INPUT_PREFIX));
+  if (sheets.length === 0) {
+    SpreadsheetApp.getUi().alert('対象シートが見つかりません。');
+    return;
+  }
+  let count = 0;
+  sheets.forEach(sh => {
+    const values = sh.getDataRange().getValues();
+    const headerRowIndex = findHeaderRowIndex_(values);
+    if (headerRowIndex < 0) return;
+
+    const firstDataSheetRow = headerRowIndex + 2; // シート上の1始まり行番号
+    const lastRow = sh.getLastRow();
+    if (firstDataSheetRow > lastRow) return;
+
+    const numDataRows = lastRow - firstDataSheetRow + 1;
+
+    // B列・C列の ARRAYFORMULA（および既存数式）を一括削除
+    sh.getRange(firstDataSheetRow, 2, numDataRows, 2).clearContent();
+
+    // データ行に個別数式をバッチ設定
+    setIndividualFormulas_(sh, firstDataSheetRow, lastRow);
+    count++;
+  });
+  SpreadsheetApp.getUi().alert(count + ' シートの数式を個別数式に変換しました。');
+}
+
+/************ ④ 行追加後の数式補完 ************/
+/**
+ * 「入力_月次_」で始まる全シートのデータ行に対し、
+ * B・C列の個別 VLOOKUP 数式を全行に再適用する。
+ * 行を追加した後に数式が抜けた場合に使用する。
+ */
+function fillFormulas() {
+  const ss = getSS_();
+  const sheets = ss.getSheets().filter(s => s.getName().startsWith(SHEET_INPUT_PREFIX));
+  if (sheets.length === 0) {
+    SpreadsheetApp.getUi().alert('対象シートが見つかりません。');
+    return;
+  }
+  let count = 0;
+  sheets.forEach(sh => {
+    const values = sh.getDataRange().getValues();
+    const headerRowIndex = findHeaderRowIndex_(values);
+    if (headerRowIndex < 0) return;
+
+    const firstDataSheetRow = headerRowIndex + 2;
+    const lastRow = sh.getLastRow();
+    if (firstDataSheetRow > lastRow) return;
+
+    setIndividualFormulas_(sh, firstDataSheetRow, lastRow);
+    count++;
+  });
+  SpreadsheetApp.getUi().alert(count + ' シートの数式を補完しました。');
+}
+
+/************ ⑤ 入力シートのソート ************/
+/**
+ * 「入力_月次_」で始まる全シートを GAS 経由で安全にソートする。
+ * ソートキー1: C列（class）昇順
+ * ソートキー2: A列（child_id）昇順
+ * B・C列は個別数式のため、ソート後も各行と正しく対応する。
+ */
+function sortInputSheets() {
+  const ss = getSS_();
+  const sheets = ss.getSheets().filter(s => s.getName().startsWith(SHEET_INPUT_PREFIX));
+  if (sheets.length === 0) {
+    SpreadsheetApp.getUi().alert('対象シートが見つかりません。');
+    return;
+  }
+  let count = 0;
+  sheets.forEach(sh => {
+    const values = sh.getDataRange().getValues();
+    const headerRowIndex = findHeaderRowIndex_(values);
+    if (headerRowIndex < 0) return;
+
+    const firstDataSheetRow = headerRowIndex + 2;
+    const lastRow = sh.getLastRow();
+    const lastCol = sh.getLastColumn();
+    if (firstDataSheetRow > lastRow) return;
+
+    const numDataRows = lastRow - firstDataSheetRow + 1;
+    const dataRange = sh.getRange(firstDataSheetRow, 1, numDataRows, lastCol);
+    dataRange.sort([
+      { column: 3, ascending: true }, // C列: class
+      { column: 1, ascending: true }  // A列: child_id
+    ]);
+    count++;
+  });
+  SpreadsheetApp.getUi().alert(count + ' シートをクラス順にソートしました。');
+}
+
+/************ ⑥ 園児マスターシートの保護（任意） ************/
+/**
+ * 園児マスターシート全体を自分以外編集不可に設定する。
+ */
+function protectMasterSheet() {
+  const ss = getSS_();
+  const sh = ss.getSheetByName(SHEET_MASTER);
+  if (!sh) {
+    SpreadsheetApp.getUi().alert('園児マスターシートが見つかりません。');
+    return;
+  }
+
+  // 既存の保護をすべて解除してから再設定
+  sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(p => p.remove());
+
+  const protection = sh.protect().setDescription('園児マスター保護（管理者のみ編集可）');
+  const me = Session.getEffectiveUser();
+
+  // 自分以外の編集者を削除（オーナーは常に編集可能）
+  const others = protection.getEditors().filter(e => e.getEmail() !== me.getEmail());
+  if (others.length > 0) protection.removeEditors(others);
+
+  SpreadsheetApp.getUi().alert('園児マスターシートを保護しました（自分のみ編集可）。');
+}
