@@ -18,8 +18,7 @@ function onOpen() {
 
   ui.createMenu('★整列')
     .addItem('クラス順に並べ替え', 'sortInputSheets')
-    .addItem('B・C列をARRAYFORMULA→個別数式に変換', 'replaceArrayFormulasWithIndividual')
-    .addItem('B・C列の数式を補完（行追加後）', 'fillFormulas')
+    .addItem('名前・クラスを最新に更新', 'fillFormulas')
     .addToUi();
 
   ui.createMenu('📋 管理')
