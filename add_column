@@ -1,0 +1,97 @@
+/**
+ * スプレッドシートを開いた時に、メニューバーに「成長記録」と「年度更新管理」を追加する
+ * ※「コード.gs」側にonOpenがある場合は、あちらを削除してこちらに一本化してください。
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+
+  // 1. 日々の運用メニュー（コード.gs内の関数を呼び出します）
+  ui.createMenu('成長記録')
+    .addItem('① トークン発行＆URL作成', 'ensureTokensAndUrls')
+    .addItem('② 入力→縦持ちログ更新', 'rebuildLogFromInput')
+    .addToUi();
+
+  // 2. 年に一度の管理メニュー（このファイル内の関数を呼び出します）
+  ui.createMenu('★年度更新管理')
+    .addItem('各クラスに翌年度の列を追加', 'addNewFiscalYearColumns')
+    .addToUi();
+}
+
+/**
+ * 【年度更新用】
+ * 全ての入力用シートに翌年度分の列（4月〜翌3月）を一括追加する
+ * 二重作成防止チェック付き
+ */
+function addNewFiscalYearColumns() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  const ui = SpreadsheetApp.getUi();
+
+  const response = ui.alert('年度更新の実行', '全ての入力_月次_〇〇シートに、新しい年度の身長・体重列を追加します。よろしいですか？', ui.ButtonSet.YES_NO);
+  if (response !== ui.Button.YES) return;
+
+  const prompt = ui.prompt('年度指定', '追加したい年度を西暦4桁で入力してください（例: 2026）', ui.ButtonSet.OK_CANCEL);
+  if (prompt.getSelectedButton() !== ui.Button.OK) return;
+  const year = parseInt(prompt.getResponseText());
+
+  if (isNaN(year) || year < 2000) {
+    ui.alert('エラー', '有効な西暦を入力してください。', ui.ButtonSet.OK);
+    return;
+  }
+
+  // チェック用の列名（例: 2026-04_h）
+  const checkColumnName = `${year}-04_h`;
+
+  // 4月から翌年3月までのヘッダー名を生成
+  const months = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
+  const newHeaders = [];
+  months.forEach(m => {
+    const targetYear = (m <= 3) ? year + 1 : year;
+    const monthStr = ('0' + m).slice(-2);
+    newHeaders.push(`${targetYear}-${monthStr}_h`, `${targetYear}-${monthStr}_w`);
+  });
+
+  let count = 0;
+  let skippedCount = 0;
+
+  sheets.forEach(sheet => {
+    const sheetName = sheet.getName();
+    if (sheetName.indexOf('入力_月次_') === 0) {
+      
+      // --- 二重作成防止チェック ---
+      const lastCol = sheet.getLastColumn();
+      let alreadyExists = false;
+      
+      if (lastCol >= 1) {
+        // 2行目（ヘッダー行）をすべて取得して確認
+        const currentHeaders = sheet.getRange(2, 1, 1, lastCol).getValues()[0];
+        if (currentHeaders.includes(checkColumnName)) {
+          alreadyExists = true;
+        }
+      }
+
+      if (alreadyExists) {
+        skippedCount++;
+        return; // このシートの処理をスキップ
+      }
+      // ----------------------------
+
+      // 列を追加
+      sheet.insertColumnsAfter(lastCol, newHeaders.length);
+      const headerRange = sheet.getRange(2, lastCol + 1, 1, newHeaders.length);
+      headerRange.setValues([newHeaders]);
+      headerRange.setBackground('#2c4f6e')
+                 .setFontColor('white')
+                 .setFontWeight('bold')
+                 .setHorizontalAlignment('center');
+      count++;
+    }
+  });
+
+  // 結果の通知
+  if (count === 0 && skippedCount > 0) {
+    ui.alert('実行済み', `指定された年度（${year}年）はすでに全てのシートに追加されているため、処理をスキップしました。`, ui.ButtonSet.OK);
+  } else {
+    ui.alert('完了', `${count} つのシートに ${year} 年度の列を追加しました。${skippedCount > 0 ? `\n（${skippedCount} つのシートは既に存在するためスキップしました）` : ''}`, ui.ButtonSet.OK);
+  }
+}
