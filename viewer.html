@@ -198,7 +198,7 @@
       <div class="kpi"><div class="label">最新 体重</div><div class="val">${fmt(latest.w)} kg</div><div class="diff">${diff.dw != null ? sign(diff.dw)+' kg' : '前月差 —'}</div></div>
     `;
     
-    renderTable(data.series || []);
+    renderTable(data.series || [], data.prev || null);
 
     const noteEl = document.getElementById('growthCurveNote');
     const hasRefData = (data.series || []).some(r => r.p3_h != null || r.p3_w != null);
@@ -224,12 +224,12 @@
     if(bool) el.classList.add('active'); else el.classList.remove('active');
   }
 
-  function renderTable(series){
+  function renderTable(series, prevEntry){
     const tableEl = document.getElementById('table');
     if (!series.length) { tableEl.innerHTML="<div style='text-align:center;padding:10px;color:#666'>データなし</div>"; return; }
     let html = `<table><thead><tr><th>月</th><th>身長</th><th>差</th><th>体重</th><th>差</th></tr></thead><tbody>`;
     series.forEach((cur, i) => {
-      const prev = i > 0 ? series[i-1] : null;
+      const prev = i > 0 ? series[i-1] : prevEntry;
       const dh = (prev && cur.h != null && prev.h != null) ? cur.h - prev.h : null;
       const dw = (prev && cur.w != null && prev.w != null) ? cur.w - prev.w : null;
       html += `<tr><td>${monthLabel(cur.ym)}</td><td>${fmt(cur.h)}</td><td>${sign(dh)}</td><td>${fmt(cur.w)}</td><td>${sign(dw)}</td></tr>`;

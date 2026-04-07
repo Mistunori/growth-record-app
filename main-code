@@ -284,6 +284,7 @@ function getChildData_(token, targetFy) {
     gender: m.gender || null,
     series: series,
     latest: latest,
+    prev: prev,
     diff: diff,
     updatedAt: updatedAt,
     fyList: fyList,
