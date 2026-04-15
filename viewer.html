@@ -226,7 +226,7 @@
       <div class="kpi"><div class="label">最新 体重</div><div class="val">${fmt(latest.w)} kg</div><div>${fmtDiff(diff.dw, 'kg')}</div></div>
     `;
     
-    renderTable(data.series || [], data.prev || null, data.isAllMode || false, data.hasBirthday || false);
+    renderTable(data.series || [], data.isAllMode ? null : (data.prev || null), data.isAllMode || false, data.hasBirthday || false);
 
     const noteEl = document.getElementById('growthCurveNote');
     const hasRefData = (data.series || []).some(r => r.p3_h != null || r.p3_w != null);
