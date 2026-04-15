@@ -66,6 +66,7 @@ function doGet(e) {
 
 /************ データ切り替え・更新用関数 ************/
 function getDataForFy(token, fy) {
+  if (fy === 'all') return getChildData_(token, 'all');
   return getChildData_(token, fy ? Number(fy) : null);
 }
 
@@ -216,10 +217,14 @@ function getChildData_(token, targetFy) {
 
   const fySet = new Set(seriesAll.map(r => fyOfYm(r.ym)));
   const fyList = Array.from(fySet).sort((a,b)=>a-b);
-  const selectedFy = (targetFy && fySet.has(targetFy)) ? targetFy : (fyList.length ? fyList[fyList.length - 1] : null);
+  const selectedFy = (targetFy === 'all') ? 'all'
+    : (targetFy && fySet.has(targetFy)) ? targetFy
+    : (fyList.length ? fyList[fyList.length - 1] : null);
 
   let displayClass = "クラス不明";
-  if (belongsSh && selectedFy) {
+  if (selectedFy === 'all') {
+    displayClass = '全期間';
+  } else if (belongsSh && selectedFy) {
     // ★改善：同一実行内キャッシュを利用して読み込みを効率化
     const bVals = getBelongsValues_(belongsSh);
     const head = bVals[0];
@@ -228,32 +233,53 @@ function getChildData_(token, targetFy) {
     if (match) displayClass = match[ni];
   }
 
-  const seriesFy = (selectedFy == null) ? [] : seriesAll.filter(r => fyOfYm(r.ym) === selectedFy);
-
-  // 身体発育曲線データを付加（birthday・gender が有効な場合のみ）
-  // 年度全期間（4月〜3月）の基準帯を生成し、実測データをマージ
   let series;
-  if (m.birthday && m.gender && selectedFy != null) {
-    const dataMap = {};
-    seriesFy.forEach(entry => { dataMap[entry.ym] = entry; });
 
-    series = [];
-    for (let mi = 0; mi < 12; mi++) {
-      const month = ((mi + 4 - 1) % 12) + 1; // 4,5,...,12,1,2,3
-      const year = month >= 4 ? selectedFy : selectedFy + 1;
-      const ym = `${year}-${String(month).padStart(2, '0')}`;
-      const existing = dataMap[ym];
-      const entry = existing || { ym, h: null, w: null };
-      const age = calcMonthAge_(m.birthday, ym);
-      entry.monthAge = age;
-      const hRef = lookupPercentile_(m.gender, 'height', age);
-      if (hRef) { entry.p3_h = hRef.p3; entry.p50_h = hRef.p50; entry.p97_h = hRef.p97; }
-      const wRef = lookupPercentile_(m.gender, 'weight', age);
-      if (wRef) { entry.p3_w = wRef.p3; entry.p50_w = wRef.p50; entry.p97_w = wRef.p97; }
-      series.push(entry);
-    }
+  if (selectedFy === 'all') {
+    // ── 全期間モード ──
+    // 実測データのみ表示（空月は生成しない）
+    // 各データポイントに発育曲線の基準値を付加
+    series = seriesAll.map(function(entry) {
+      var e = { ym: entry.ym, h: entry.h, w: entry.w };
+      if (m.birthday && m.gender) {
+        var age = calcMonthAge_(m.birthday, entry.ym);
+        e.monthAge = age;
+        var hRef = lookupPercentile_(m.gender, 'height', age);
+        if (hRef) { e.p3_h = hRef.p3; e.p50_h = hRef.p50; e.p97_h = hRef.p97; }
+        var wRef = lookupPercentile_(m.gender, 'weight', age);
+        if (wRef) { e.p3_w = wRef.p3; e.p50_w = wRef.p50; e.p97_w = wRef.p97; }
+      }
+      return e;
+    });
+
   } else {
-    series = seriesFy;
+    // ── 年度モード（既存ロジックそのまま） ──
+    const seriesFy = (selectedFy == null) ? [] : seriesAll.filter(r => fyOfYm(r.ym) === selectedFy);
+
+    // 身体発育曲線データを付加（birthday・gender が有効な場合のみ）
+    // 年度全期間（4月〜3月）の基準帯を生成し、実測データをマージ
+    if (m.birthday && m.gender && selectedFy != null) {
+      const dataMap = {};
+      seriesFy.forEach(entry => { dataMap[entry.ym] = entry; });
+
+      series = [];
+      for (let mi = 0; mi < 12; mi++) {
+        const month = ((mi + 4 - 1) % 12) + 1; // 4,5,...,12,1,2,3
+        const year = month >= 4 ? selectedFy : selectedFy + 1;
+        const ym = `${year}-${String(month).padStart(2, '0')}`;
+        const existing = dataMap[ym];
+        const entry = existing || { ym, h: null, w: null };
+        const age = calcMonthAge_(m.birthday, ym);
+        entry.monthAge = age;
+        const hRef = lookupPercentile_(m.gender, 'height', age);
+        if (hRef) { entry.p3_h = hRef.p3; entry.p50_h = hRef.p50; entry.p97_h = hRef.p97; }
+        const wRef = lookupPercentile_(m.gender, 'weight', age);
+        if (wRef) { entry.p3_w = wRef.p3; entry.p50_w = wRef.p50; entry.p97_w = wRef.p97; }
+        series.push(entry);
+      }
+    } else {
+      series = seriesFy;
+    }
   }
 
   // latest/prev は実測データがあるエントリのみから取得
