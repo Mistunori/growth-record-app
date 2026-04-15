@@ -257,6 +257,15 @@
     var parts = ym.split('-');
     return parts[0].slice(2) + '/' + Number(parts[1]);
   }
+  function ageLabelShort(monthAge) {
+    var y = Math.floor(monthAge / 12);
+    return y + '歳';
+  }
+  function ageLabelFull(monthAge) {
+    var y = Math.floor(monthAge / 12);
+    var m = monthAge % 12;
+    return y + '歳' + m + 'ヶ月';
+  }
   function showLoading(bool){
     const el = document.getElementById('loadingOverlay');
     if(bool) el.classList.add('active'); else el.classList.remove('active');
@@ -272,7 +281,8 @@
 
     if (!displaySeries.length) { tableEl.innerHTML="<div style='text-align:center;padding:10px;color:#666'>データなし</div>"; return; }
 
-    var html = '<table><thead><tr><th>月</th><th>身長</th><th>差</th><th>体重</th><th>差</th></tr></thead><tbody>';
+    var headerLabel = isAllMode ? '月齢' : '月';
+    var html = '<table><thead><tr><th>' + headerLabel + '</th><th>身長</th><th>差</th><th>体重</th><th>差</th></tr></thead><tbody>';
     displaySeries.forEach(function(cur, i) {
       var prev = i > 0 ? displaySeries[i-1] : prevEntry;
       var dh = (prev && cur.h != null && prev.h != null) ? cur.h - prev.h : null;
@@ -287,7 +297,7 @@
 
       var lbl;
       if (isAllMode && hasBirthday && cur.monthAge != null) {
-        lbl = cur.monthAge + 'ヶ月';
+        lbl = ageLabelFull(cur.monthAge);
       } else if (isAllMode && cur.ym) {
         lbl = monthLabelFull(cur.ym);
       } else if (cur.ym) {
@@ -363,9 +373,15 @@
         legend: { position: 'top', alignment: 'end', textStyle: { fontSize: 11, color: '#888' } },
         chartArea: { left: 45, right: 10, top: 35, bottom: 40 },
         hAxis: {
-          ticks: [12, 24, 36, 48, 60, 72],
-          textStyle: { fontSize: 11 },
-          format: '#'
+          ticks: [
+            {v: 12, f: '1歳'},
+            {v: 24, f: '2歳'},
+            {v: 36, f: '3歳'},
+            {v: 48, f: '4歳'},
+            {v: 60, f: '5歳'},
+            {v: 72, f: '6歳'}
+          ],
+          textStyle: { fontSize: 11 }
         },
         vAxis: {
           gridlines: { color: '#f3f3f3' },
