@@ -239,9 +239,10 @@ function getChildData_(token, targetFy) {
     // ── 全期間モード ──
 
     if (m.birthday && m.gender) {
-      // 月齢ベース：0〜78ヶ月の基準帯を生成し、実測データをマージ
+      // 月齢ベース：8〜78ヶ月の基準帯を生成し、実測データをマージ
+      // （0〜7ヶ月は保育園対象外のため切り捨ててY軸範囲を狭める）
       var refEntries = [];
-      for (var age = 0; age <= 78; age++) {
+      for (var age = 8; age <= 78; age++) {
         var entry = { monthAge: age, h: null, w: null, ym: null };
         var hRef = lookupPercentile_(m.gender, 'height', age);
         if (hRef) { entry.p3_h = hRef.p3; entry.p50_h = hRef.p50; entry.p97_h = hRef.p97; }
@@ -250,13 +251,13 @@ function getChildData_(token, targetFy) {
         refEntries.push(entry);
       }
 
-      // 実測データを月齢で計算してマージ
+      // 実測データを月齢で計算してマージ（月齢8未満は切り捨て）
       seriesAll.forEach(function(meas) {
         var age = calcMonthAge_(m.birthday, meas.ym);
-        if (age >= 0 && age <= 78) {
-          refEntries[age].h = meas.h;
-          refEntries[age].w = meas.w;
-          refEntries[age].ym = meas.ym;
+        if (age >= 8 && age <= 78) {
+          refEntries[age - 8].h = meas.h;
+          refEntries[age - 8].w = meas.w;
+          refEntries[age - 8].ym = meas.ym;
         } else if (age > 78) {
           // 78ヶ月超のデータも追加（基準帯なし）
           refEntries.push({ monthAge: age, h: meas.h, w: meas.w, ym: meas.ym });
