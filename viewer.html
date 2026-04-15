@@ -310,7 +310,7 @@
 
     // 全期間モードはグラフを大きくする
     if (chartMode === 'allAge') {
-      el.style.height = '400px';
+      el.style.height = '550px';
     } else {
       el.style.height = '300px';
     }
@@ -359,7 +359,7 @@
       new google.visualization.LineChart(el).draw(data, {
         series: {
           0: { color: '#aaaaaa', lineWidth: 1, lineDashStyle: [4, 4], pointSize: 0 },
-          1: { color: color, lineWidth: 2.5, pointSize: 7 }
+          1: { color: color, lineWidth: 2, pointSize: 4 }
         },
         intervals: { style: 'area', color: '#e2e2e2' },
         interpolateNulls: false,
