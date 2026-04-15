@@ -308,6 +308,13 @@
     var el = document.getElementById(id);
     if(!series.length) { el.innerHTML = ""; return; }
 
+    // 全期間モードはグラフを大きくする
+    if (chartMode === 'allAge') {
+      el.style.height = '400px';
+    } else {
+      el.style.height = '300px';
+    }
+
     var data = new google.visualization.DataTable();
     var formatter = new google.visualization.NumberFormat({pattern: '#.0'});
 
@@ -333,10 +340,26 @@
       formatter.format(data, 1);
       formatter.format(data, 4);
 
+      // Y軸の範囲を発育曲線データから計算（0始まりを防ぐ）
+      var minVal = null, maxVal = null;
+      for (var ri = 0; ri < series.length; ri++) {
+        var vals = [series[ri]['p3_' + key], series[ri]['p97_' + key], series[ri][key]];
+        for (var vi = 0; vi < vals.length; vi++) {
+          if (vals[vi] != null) {
+            if (minVal === null || vals[vi] < minVal) minVal = vals[vi];
+            if (maxVal === null || vals[vi] > maxVal) maxVal = vals[vi];
+          }
+        }
+      }
+      // 上下に余白を追加
+      var padding = (maxVal - minVal) * 0.08;
+      var yMin = Math.floor(minVal - padding);
+      var yMax = Math.ceil(maxVal + padding);
+
       new google.visualization.LineChart(el).draw(data, {
         series: {
           0: { color: '#aaaaaa', lineWidth: 1, lineDashStyle: [4, 4], pointSize: 0 },
-          1: { color: color, lineWidth: 2, pointSize: 5 }
+          1: { color: color, lineWidth: 2.5, pointSize: 7 }
         },
         intervals: { style: 'area', color: '#e2e2e2' },
         interpolateNulls: false,
@@ -349,7 +372,7 @@
         vAxis: {
           gridlines: { color: '#f3f3f3' },
           format: '#.0',
-          viewWindowMode: 'pretty'
+          viewWindow: { min: yMin, max: yMax }
         },
         focusTarget: 'category'
       });
