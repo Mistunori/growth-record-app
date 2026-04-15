@@ -167,7 +167,9 @@
     document.getElementById('titleName').textContent = data.childName;
     document.getElementById('className').textContent = data.childClass;
     document.getElementById('updatedAt').textContent = data.updatedAt;
-    document.getElementById('fyLine').textContent = data.selectedFy ? (data.selectedFy + '年度の成長記録') : 'データなし';
+    document.getElementById('fyLine').textContent = data.selectedFy === 'all' ? '全期間の成長記録'
+      : data.selectedFy ? (data.selectedFy + '年度の成長記録')
+      : 'データなし';
     
     const tabArea = document.getElementById('siblingTabs');
     tabArea.innerHTML = '';
@@ -202,6 +204,12 @@
       if(fy == data.selectedFy) opt.selected = true;
       sel.appendChild(opt);
     });
+    // 「全期間」オプションを末尾に追加
+    var allOpt = document.createElement('option');
+    allOpt.value = 'all';
+    allOpt.textContent = '全期間';
+    if (data.selectedFy === 'all') allOpt.selected = true;
+    sel.appendChild(allOpt);
     sel.disabled = false;
     
     const latest = data.latest || {};
@@ -218,14 +226,15 @@
       <div class="kpi"><div class="label">最新 体重</div><div class="val">${fmt(latest.w)} kg</div><div>${fmtDiff(diff.dw, 'kg')}</div></div>
     `;
     
-    renderTable(data.series || [], data.prev || null);
+    renderTable(data.series || [], data.prev || null, data.selectedFy === 'all');
 
     const noteEl = document.getElementById('growthCurveNote');
     const hasRefData = (data.series || []).some(r => r.p3_h != null || r.p3_w != null);
     if (noteEl) noteEl.style.display = hasRefData ? 'block' : 'none';
 
-    drawChart('chart_h', '身長', 'h', '#4285f4', data.series || []);
-    drawChart('chart_w', '体重', 'w', '#db4437', data.series || []);
+    var isAll = data.selectedFy === 'all';
+    drawChart('chart_h', '身長', 'h', '#4285f4', data.series || [], isAll);
+    drawChart('chart_w', '体重', 'w', '#db4437', data.series || [], isAll);
   }
 
   document.getElementById('fySelect').addEventListener('change', function(){
@@ -238,13 +247,20 @@
 
   function fmt(n, d=1){ return (n == null) ? '—' : Number(n).toFixed(d); }
   function sign(n){ return (n > 0 ? '+' : '') + Number(n).toFixed(1); }
-  function monthLabel(ym){ return Number(ym.split('-')[1]) + '月'; }
+  function monthLabel(ym){
+    var parts = ym.split('-');
+    return Number(parts[1]) + '月';
+  }
+  function monthLabelFull(ym){
+    var parts = ym.split('-');
+    return parts[0].slice(2) + '/' + Number(parts[1]);
+  }
   function showLoading(bool){
     const el = document.getElementById('loadingOverlay');
     if(bool) el.classList.add('active'); else el.classList.remove('active');
   }
 
-  function renderTable(series, prevEntry){
+  function renderTable(series, prevEntry, isAllMode){
     const tableEl = document.getElementById('table');
     if (!series.length) { tableEl.innerHTML="<div style='text-align:center;padding:10px;color:#666'>データなし</div>"; return; }
     let html = `<table><thead><tr><th>月</th><th>身長</th><th>差</th><th>体重</th><th>差</th></tr></thead><tbody>`;
@@ -259,12 +275,12 @@
         const c = n > 0 ? '#1a56db' : '#c0392b';
         return `<td style="color:${c};font-weight:700">${s}</td>`;
       };
-      html += `<tr><td>${monthLabel(cur.ym)}</td><td>${fmt(cur.h)}</td>${fmtD(dh)}<td>${fmt(cur.w)}</td>${fmtD(dw)}</tr>`;
+      html += `<tr><td>${isAllMode ? monthLabelFull(cur.ym) : monthLabel(cur.ym)}</td><td>${fmt(cur.h)}</td>${fmtD(dh)}<td>${fmt(cur.w)}</td>${fmtD(dw)}</tr>`;
     });
     tableEl.innerHTML = html + `</tbody></table>`;
   }
 
-  function drawChart(id, label, key, color, series){
+  function drawChart(id, label, key, color, series, isAllMode){
     if (typeof google === 'undefined' || !google.visualization || !google.visualization.DataTable) {
       return;
     }
@@ -284,7 +300,7 @@
       data.addColumn('number', label);
       series.forEach(r => {
         data.addRow([
-          monthLabel(r.ym),
+          (isAllMode ? monthLabelFull(r.ym) : monthLabel(r.ym)),
           r['p50_' + key],
           r['p3_' + key],
           r['p97_' + key],
@@ -313,7 +329,7 @@
       // 従来モード: 実測値のみ
       data.addColumn('string', '月');
       data.addColumn('number', label);
-      series.forEach(r => data.addRow([monthLabel(r.ym), r[key]]));
+      series.forEach(r => data.addRow([(isAllMode ? monthLabelFull(r.ym) : monthLabel(r.ym)), r[key]]));
       formatter.format(data, 1);
 
       new google.visualization.LineChart(el).draw(data, {
