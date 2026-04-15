@@ -226,15 +226,17 @@
       <div class="kpi"><div class="label">最新 体重</div><div class="val">${fmt(latest.w)} kg</div><div>${fmtDiff(diff.dw, 'kg')}</div></div>
     `;
     
-    renderTable(data.series || [], data.prev || null, data.selectedFy === 'all');
+    renderTable(data.series || [], data.prev || null, data.isAllMode || false, data.hasBirthday || false);
 
     const noteEl = document.getElementById('growthCurveNote');
     const hasRefData = (data.series || []).some(r => r.p3_h != null || r.p3_w != null);
     if (noteEl) noteEl.style.display = hasRefData ? 'block' : 'none';
 
-    var isAll = data.selectedFy === 'all';
-    drawChart('chart_h', '身長', 'h', '#4285f4', data.series || [], isAll);
-    drawChart('chart_w', '体重', 'w', '#db4437', data.series || [], isAll);
+    var chartMode = (data.isAllMode && data.hasBirthday) ? 'allAge'
+                  : data.isAllMode ? 'allYm'
+                  : 'fy';
+    drawChart('chart_h', '身長', 'h', '#4285f4', data.series || [], chartMode);
+    drawChart('chart_w', '体重', 'w', '#db4437', data.series || [], chartMode);
   }
 
   document.getElementById('fySelect').addEventListener('change', function(){
@@ -260,50 +262,71 @@
     if(bool) el.classList.add('active'); else el.classList.remove('active');
   }
 
-  function renderTable(series, prevEntry, isAllMode){
-    const tableEl = document.getElementById('table');
-    if (!series.length) { tableEl.innerHTML="<div style='text-align:center;padding:10px;color:#666'>データなし</div>"; return; }
-    let html = `<table><thead><tr><th>月</th><th>身長</th><th>差</th><th>体重</th><th>差</th></tr></thead><tbody>`;
-    series.forEach((cur, i) => {
-      const prev = i > 0 ? series[i-1] : prevEntry;
-      const dh = (prev && cur.h != null && prev.h != null) ? cur.h - prev.h : null;
-      const dw = (prev && cur.w != null && prev.w != null) ? cur.w - prev.w : null;
-      const fmtD = n => {
+  function renderTable(series, prevEntry, isAllMode, hasBirthday){
+    var tableEl = document.getElementById('table');
+
+    // 全期間モードでは実測データのみ表示
+    var displaySeries = isAllMode
+      ? series.filter(function(r) { return r.h != null || r.w != null; })
+      : series;
+
+    if (!displaySeries.length) { tableEl.innerHTML="<div style='text-align:center;padding:10px;color:#666'>データなし</div>"; return; }
+
+    var html = '<table><thead><tr><th>月</th><th>身長</th><th>差</th><th>体重</th><th>差</th></tr></thead><tbody>';
+    displaySeries.forEach(function(cur, i) {
+      var prev = i > 0 ? displaySeries[i-1] : prevEntry;
+      var dh = (prev && cur.h != null && prev.h != null) ? cur.h - prev.h : null;
+      var dw = (prev && cur.w != null && prev.w != null) ? cur.w - prev.w : null;
+      var fmtD = function(n) {
         if (n == null) return '<td style="color:#aaa">—</td>';
         if (Math.abs(n) < 0.05) return '<td style="color:#aaa">—</td>';
-        const s = (n > 0 ? '+' : '') + Number(n).toFixed(1);
-        const c = n > 0 ? '#1a56db' : '#c0392b';
-        return `<td style="color:${c};font-weight:700">${s}</td>`;
+        var s = (n > 0 ? '+' : '') + Number(n).toFixed(1);
+        var c = n > 0 ? '#1a56db' : '#c0392b';
+        return '<td style="color:'+c+';font-weight:700">'+s+'</td>';
       };
-      html += `<tr><td>${isAllMode ? monthLabelFull(cur.ym) : monthLabel(cur.ym)}</td><td>${fmt(cur.h)}</td>${fmtD(dh)}<td>${fmt(cur.w)}</td>${fmtD(dw)}</tr>`;
+
+      var lbl;
+      if (isAllMode && hasBirthday && cur.monthAge != null) {
+        lbl = cur.monthAge + 'ヶ月';
+      } else if (isAllMode && cur.ym) {
+        lbl = monthLabelFull(cur.ym);
+      } else if (cur.ym) {
+        lbl = monthLabel(cur.ym);
+      } else {
+        lbl = '—';
+      }
+
+      html += '<tr><td>'+lbl+'</td><td>'+fmt(cur.h)+'</td>'+fmtD(dh)+'<td>'+fmt(cur.w)+'</td>'+fmtD(dw)+'</tr>';
     });
-    tableEl.innerHTML = html + `</tbody></table>`;
+    tableEl.innerHTML = html + '</tbody></table>';
   }
 
-  function drawChart(id, label, key, color, series, isAllMode){
+  function drawChart(id, label, key, color, series, chartMode){
     if (typeof google === 'undefined' || !google.visualization || !google.visualization.DataTable) {
       return;
     }
-    const el = document.getElementById(id);
+    var el = document.getElementById(id);
     if(!series.length) { el.innerHTML = ""; return; }
 
-    const hasRef = series[0]['p3_' + key] != null;
-    const data = new google.visualization.DataTable();
-    const formatter = new google.visualization.NumberFormat({pattern: '#.0'});
+    var data = new google.visualization.DataTable();
+    var formatter = new google.visualization.NumberFormat({pattern: '#.0'});
 
-    if (hasRef) {
-      // 基準帯付きモード: 50%線 + interval(3%-97%帯) + 実測値
-      data.addColumn('string', '月');
+    if (chartMode === 'allAge') {
+      // ── 全期間・月齢モード（78ヶ月発育曲線） ──
+      data.addColumn('string', '月齢');
       data.addColumn('number', '50%');
       data.addColumn({type:'number', role:'interval', label:'3%'});
       data.addColumn({type:'number', role:'interval', label:'97%'});
       data.addColumn('number', label);
-      series.forEach(r => {
+
+      series.forEach(function(r) {
+        // 6ヶ月間隔でラベル表示、それ以外は空文字
+        var lbl = (r.monthAge % 6 === 0) ? String(r.monthAge) : '';
         data.addRow([
-          (isAllMode ? monthLabelFull(r.ym) : monthLabel(r.ym)),
-          r['p50_' + key],
-          r['p3_' + key],
-          r['p97_' + key],
+          lbl,
+          r['p50_' + key] != null ? r['p50_' + key] : null,
+          r['p3_' + key] != null ? r['p3_' + key] : null,
+          r['p97_' + key] != null ? r['p97_' + key] : null,
           r[key]
         ]);
       });
@@ -313,11 +336,16 @@
       new google.visualization.LineChart(el).draw(data, {
         series: {
           0: { color: '#aaaaaa', lineWidth: 1, lineDashStyle: [4, 4], pointSize: 0 },
-          1: { color: color, lineWidth: 3, pointSize: 4 }
+          1: { color: color, lineWidth: 2, pointSize: 5 }
         },
         intervals: { style: 'area', color: '#e2e2e2' },
+        interpolateNulls: false,
         legend: { position: 'top', alignment: 'end', textStyle: { fontSize: 11, color: '#888' } },
         chartArea: { left: 45, right: 10, top: 35, bottom: 40 },
+        hAxis: {
+          textStyle: { fontSize: 10 },
+          slantedText: false
+        },
         vAxis: {
           gridlines: { color: '#f3f3f3' },
           format: '#.0',
@@ -325,23 +353,65 @@
         },
         focusTarget: 'category'
       });
-    } else {
-      // 従来モード: 実測値のみ
-      data.addColumn('string', '月');
-      data.addColumn('number', label);
-      series.forEach(r => data.addRow([(isAllMode ? monthLabelFull(r.ym) : monthLabel(r.ym)), r[key]]));
-      formatter.format(data, 1);
 
-      new google.visualization.LineChart(el).draw(data, {
-        colors: [color],
-        legend: 'none',
-        chartArea: { left: 45, right: 10, top: 20, bottom: 40 },
-        vAxis: {
-          gridlines: { color: '#f3f3f3' },
-          format: '#.0',
-          viewWindowMode: 'pretty'
-        }
-      });
+    } else {
+      // ── 年度モード or 全期間フォールバック ──
+      var labelFn = (chartMode === 'allYm')
+        ? function(ym){ return monthLabelFull(ym); }
+        : function(ym){ return monthLabel(ym); };
+
+      var hasRef = series[0]['p3_' + key] != null;
+
+      if (hasRef) {
+        data.addColumn('string', '月');
+        data.addColumn('number', '50%');
+        data.addColumn({type:'number', role:'interval', label:'3%'});
+        data.addColumn({type:'number', role:'interval', label:'97%'});
+        data.addColumn('number', label);
+        series.forEach(function(r) {
+          data.addRow([
+            labelFn(r.ym),
+            r['p50_' + key],
+            r['p3_' + key],
+            r['p97_' + key],
+            r[key]
+          ]);
+        });
+        formatter.format(data, 1);
+        formatter.format(data, 4);
+
+        new google.visualization.LineChart(el).draw(data, {
+          series: {
+            0: { color: '#aaaaaa', lineWidth: 1, lineDashStyle: [4, 4], pointSize: 0 },
+            1: { color: color, lineWidth: 3, pointSize: 4 }
+          },
+          intervals: { style: 'area', color: '#e2e2e2' },
+          legend: { position: 'top', alignment: 'end', textStyle: { fontSize: 11, color: '#888' } },
+          chartArea: { left: 45, right: 10, top: 35, bottom: 40 },
+          vAxis: {
+            gridlines: { color: '#f3f3f3' },
+            format: '#.0',
+            viewWindowMode: 'pretty'
+          },
+          focusTarget: 'category'
+        });
+      } else {
+        data.addColumn('string', '月');
+        data.addColumn('number', label);
+        series.forEach(function(r) { data.addRow([labelFn(r.ym), r[key]]); });
+        formatter.format(data, 1);
+
+        new google.visualization.LineChart(el).draw(data, {
+          colors: [color],
+          legend: 'none',
+          chartArea: { left: 45, right: 10, top: 20, bottom: 40 },
+          vAxis: {
+            gridlines: { color: '#f3f3f3' },
+            format: '#.0',
+            viewWindowMode: 'pretty'
+          }
+        });
+      }
     }
   }
 

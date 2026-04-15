@@ -235,22 +235,45 @@ function getChildData_(token, targetFy) {
 
   let series;
 
-  if (selectedFy === 'all') {
+  if (targetFy === 'all') {
     // ── 全期間モード ──
-    // 実測データのみ表示（空月は生成しない）
-    // 各データポイントに発育曲線の基準値を付加
-    series = seriesAll.map(function(entry) {
-      var e = { ym: entry.ym, h: entry.h, w: entry.w };
-      if (m.birthday && m.gender) {
-        var age = calcMonthAge_(m.birthday, entry.ym);
-        e.monthAge = age;
+
+    if (m.birthday && m.gender) {
+      // 月齢ベース：0〜78ヶ月の基準帯を生成し、実測データをマージ
+      var refEntries = [];
+      for (var age = 0; age <= 78; age++) {
+        var entry = { monthAge: age, h: null, w: null, ym: null };
         var hRef = lookupPercentile_(m.gender, 'height', age);
-        if (hRef) { e.p3_h = hRef.p3; e.p50_h = hRef.p50; e.p97_h = hRef.p97; }
+        if (hRef) { entry.p3_h = hRef.p3; entry.p50_h = hRef.p50; entry.p97_h = hRef.p97; }
         var wRef = lookupPercentile_(m.gender, 'weight', age);
-        if (wRef) { e.p3_w = wRef.p3; e.p50_w = wRef.p50; e.p97_w = wRef.p97; }
+        if (wRef) { entry.p3_w = wRef.p3; entry.p50_w = wRef.p50; entry.p97_w = wRef.p97; }
+        refEntries.push(entry);
       }
-      return e;
-    });
+
+      // 実測データを月齢で計算してマージ
+      seriesAll.forEach(function(meas) {
+        var age = calcMonthAge_(m.birthday, meas.ym);
+        if (age >= 0 && age <= 78) {
+          refEntries[age].h = meas.h;
+          refEntries[age].w = meas.w;
+          refEntries[age].ym = meas.ym;
+        } else if (age > 78) {
+          // 78ヶ月超のデータも追加（基準帯なし）
+          refEntries.push({ monthAge: age, h: meas.h, w: meas.w, ym: meas.ym });
+        }
+      });
+
+      // 月齢順にソート（78超のデータがある場合のため）
+      refEntries.sort(function(a, b) { return a.monthAge - b.monthAge; });
+
+      series = refEntries;
+
+    } else {
+      // birthday/gender なし → 月齢計算不可、年月表記でフォールバック
+      series = seriesAll.map(function(entry) {
+        return { ym: entry.ym, h: entry.h, w: entry.w, monthAge: null };
+      });
+    }
 
   } else {
     // ── 年度モード（既存ロジックそのまま） ──
@@ -315,6 +338,8 @@ function getChildData_(token, targetFy) {
     updatedAt: updatedAt,
     fyList: fyList,
     selectedFy: selectedFy,
+    isAllMode: targetFy === 'all',
+    hasBirthday: !!(m.birthday && m.gender),
     siblings: m.siblings,
     appUrl: ScriptApp.getService().getUrl()
   };
