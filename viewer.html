@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js" async></script>
   <style>
     :root{
       --pad: 14px;
@@ -146,14 +146,21 @@
   let currentData = <?!= initialDataJson ?>;
   let currentToken = "<?= token ?>";
 
-  // ★修正1：画面表示を最優先
+  // テキスト・数値・テーブルを即座に表示
   updateView(currentData);
 
-  // その後、グラフライブラリを読み込み
-  google.charts.load('current', {'packages':['corechart']});
-  google.charts.setOnLoadCallback(() => {
-    updateView(currentData);
-  });
+  // Google Charts は非同期読み込みなので、準備できたら初期化
+  function initCharts() {
+    if (typeof google !== 'undefined' && google.charts) {
+      google.charts.load('current', {'packages':['corechart']});
+      google.charts.setOnLoadCallback(function() {
+        updateView(currentData);
+      });
+    } else {
+      setTimeout(initCharts, 100);
+    }
+  }
+  initCharts();
 
   function updateView(data) {
     if(!data) return;
