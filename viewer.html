@@ -328,7 +328,7 @@
 
       series.forEach(function(r) {
         // 6ヶ月間隔でラベル表示、それ以外は空文字
-        var lbl = (r.monthAge % 6 === 0) ? String(r.monthAge) : '';
+        var lbl = (r.monthAge % 12 === 0) ? String(r.monthAge) : '';
         data.addRow([
           lbl,
           r['p50_' + key] != null ? r['p50_' + key] : null,
@@ -367,7 +367,8 @@
         chartArea: { left: 45, right: 10, top: 35, bottom: 40 },
         hAxis: {
           textStyle: { fontSize: 10 },
-          slantedText: false
+          slantedText: false,
+          showTextEvery: 1
         },
         vAxis: {
           gridlines: { color: '#f3f3f3' },
